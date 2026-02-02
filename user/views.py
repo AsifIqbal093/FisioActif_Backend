@@ -1,3 +1,5 @@
+from user.serializers import CustomerAuthTokenSerializer
+from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import IsAuthenticated
@@ -8,7 +10,7 @@ from rest_framework.exceptions import NotFound
 
 from user.models import User, Customer
 from .permissions import IsAdmin
-from user.serializers import UserSerializer, UserAdminSerializer, CustomerSerializer, TimeslotSerializer
+from user.serializers import UserSerializer, UserAdminSerializer, CustomerSerializer, TimeslotSerializer, CustomerRegistrationSerializer
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 
@@ -32,7 +34,15 @@ class CustomTokenObtainView(ObtainAuthToken):
 
 
 class CreateUserView(generics.CreateAPIView):
-    serializer_class = UserSerializer
+
+    serializer_class = CustomerRegistrationSerializer
+    queryset = Customer.objects.all()
+
+    def create(self, request, *args, **kwargs):
+        # Only allow client registration, not professional
+        if 'role' in request.data and request.data['role'] == 'professional':
+            return Response({'detail': 'Professional registration is not allowed.'}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
 
 
 from rest_framework.authentication import TokenAuthentication
@@ -148,18 +158,38 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     
 
 class CustomerViewSet(viewsets.ModelViewSet):
+    def destroy(self, request, *args, **kwargs):
+        user = self.request.user
+        instance = self.get_object()
+        # Admin can delete any client; client can only delete their own record
+        if hasattr(user, 'role') and user.role == 'admin':
+            return super().destroy(request, *args, **kwargs)
+        if hasattr(user, 'email') and not hasattr(user, 'role') and instance.email == user.email:
+            return super().destroy(request, *args, **kwargs)
+        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+
+
     queryset = Customer.objects.all()
-    serializer_class = CustomerSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CustomerRegistrationSerializer
+        return CustomerSerializer
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'professional':
-            return Customer.objects.filter(professionals=user).order_by('-id')
-        if user.role == 'admin':
+        # Admin can see all clients
+        if hasattr(user, 'role') and user.role == 'admin':
             return Customer.objects.all().order_by('-id')
+        # Client can only see their own record
+        if hasattr(user, 'role') and user.role == 'professional':
+            return Customer.objects.none()
+        # If authenticated as Customer (client)
+        if hasattr(user, 'email') and not hasattr(user, 'role'):
+            return Customer.objects.filter(email=user.email)
         return Customer.objects.none()
-
+    
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -188,3 +218,77 @@ class CustomerViewSet(viewsets.ModelViewSet):
         customers = Customer.objects.filter(professionals=professional)
         serializer = self.get_serializer(customers, many=True)
         return Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        # Only admin can create clients via this endpoint
+        user = self.request.user
+        if not (hasattr(user, 'role') and user.role == 'admin'):
+            return Response({'detail': 'Only admin can create clients.'}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        user = self.request.user
+        instance = self.get_object()
+        # Admin can update any client; client can only update their own info
+        if hasattr(user, 'role') and user.role == 'admin':
+            return super().update(request, *args, **kwargs)
+        if hasattr(user, 'email') and not hasattr(user, 'role') and instance.email == user.email:
+            return super().update(request, *args, **kwargs)
+        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+
+    def destroy(self, request, *args, **kwargs):
+        user = self.request.user
+        instance = self.get_object()
+        # Admin can delete any client; client can only delete their own record
+        if hasattr(user, 'role') and user.role == 'admin':
+            return super().destroy(request, *args, **kwargs)
+        if hasattr(user, 'email') and not hasattr(user, 'role') and instance.email == user.email:
+            return super().destroy(request, *args, **kwargs)
+        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+
+
+    # Removed by-professional endpoint: professionals no longer have access to clients
+    
+
+# Unified login view for both User (admin) and Customer (client)
+from user.serializers import AuthTokenSerializer
+
+class CustomTokenObtainView(APIView):
+    """Login view for both admin (User) and client (Customer)"""
+    serializer_class = AuthTokenSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
+        from django.contrib.auth import authenticate
+        user = authenticate(request=request, username=email, password=password)
+        if user is not None:
+            # Only allow admin login, not professional
+            if hasattr(user, 'role') and user.role == 'professional':
+                return Response({'detail': 'Professional login is not allowed.'}, status=status.HTTP_403_FORBIDDEN)
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({
+                'token': token.key,
+                'user_id': user.pk,
+                'email': user.email,
+                'full_name': user.full_name,
+                'role': user.role,
+                'type': 'admin'
+            })
+        from user.models import Customer
+        try:
+            customer = Customer.objects.get(email=email)
+        except Customer.DoesNotExist:
+            return Response({'detail': 'Unable to authenticate with provided credentials.'}, status=400)
+        if not customer.check_password(password):
+            return Response({'detail': 'Unable to authenticate with provided credentials.'}, status=400)
+        token, created = Token.objects.get_or_create(user=None)
+        return Response({
+            'token': token.key,
+            'customer_id': customer.pk,
+            'email': customer.email,
+            'full_name': customer.full_name,
+            'type': 'client'
+        })

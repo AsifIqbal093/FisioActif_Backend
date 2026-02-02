@@ -35,6 +35,7 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
+    color_scheme = models.CharField(max_length=50, blank=True, null=True, help_text="Preferred color scheme for professional UI")
     contact_number = models.CharField(max_length=20, blank=True, null=True)
     ROLE_CHOICES = (
         ('admin', 'Admin'),
@@ -169,8 +170,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 class Customer(models.Model):
     full_name = models.CharField(max_length=255)
-    email = models.EmailField()
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=128)
     contact_number = models.CharField(max_length=20, blank=True, null=True)
+    # Password hashing and authentication methods
+    def set_password(self, raw_password):
+        from django.contrib.auth.hashers import make_password
+        self.password = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        from django.contrib.auth.hashers import check_password
+        return check_password(raw_password, self.password)
     professionals = models.ManyToManyField(
         User,
         limit_choices_to={'role': 'professional'},

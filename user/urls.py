@@ -21,6 +21,5 @@ urlpatterns = [
     path('register/', CreateUserView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='user-profile'),
     path('login/', CustomTokenObtainView.as_view(), name='token_obtain'),
-
     path('', include(router.urls)),
 ]

@@ -48,17 +48,41 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class CustomerSerializer(serializers.ModelSerializer):
+
     professionals = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role='professional'),
         many=True,
         required=False
     )
+    password = serializers.CharField(write_only=True, min_length=5, required=True)
 
     class Meta:
         model = Customer
-        fields = ['id', 'full_name', 'email', 'contact_number', 'joined_at', 'professionals']
+        fields = ['id', 'full_name', 'email', 'password', 'contact_number', 'joined_at', 'professionals']
         read_only_fields = ['id', 'joined_at']
 
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        customer = Customer(**validated_data)
+        customer.set_password(password)
+        customer.save()
+        return customer
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+    def validate_email(self, value):
+        if self.instance and self.instance.email == value:
+            return value
+        if Customer.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A client with this email already exists.")
+        return value
 
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
@@ -119,6 +143,7 @@ class UserSerializer(serializers.ModelSerializer):
             'gender_senhora',
             'gender_homem',
             'domicilio',
+            'color_scheme',
 
             # commissions
             'commission_executing_percent',
@@ -235,7 +260,6 @@ class AuthTokenSerializer(serializers.Serializer):
         return attrs
 
 
-
 class FlexiblePKRelatedField(serializers.PrimaryKeyRelatedField):
     def to_internal_value(self, data):
         try:
@@ -272,7 +296,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
             'street', 'city', 'state', 'country', 'zipcode',
 
             # collaborator / professional
-            'collaborator_code', 'specialty', 'gender_senhora', 'gender_homem', 'domicilio',
+            'collaborator_code', 'specialty', 'gender_senhora', 'gender_homem', 'domicilio', 'color_scheme',
 
             # commissions
             'commission_executing_percent', 'commission_executing_euro',
@@ -384,3 +408,44 @@ class UserAdminSerializer(serializers.ModelSerializer):
                         continue
 
         return user
+    
+
+class CustomerRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=5)
+
+    class Meta:
+        model = Customer
+        fields = ['id', 'full_name', 'email', 'password', 'contact_number']
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        customer = Customer(**validated_data)
+        customer.set_password(password)
+        customer.save()
+        return customer
+
+    def validate_email(self, value):
+        if Customer.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A client with this email already exists.")
+        return value
+
+
+class CustomerAuthTokenSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(
+        style={'input_type': 'password'},
+        trim_whitespace=False,
+    )
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+        password = attrs.get('password')
+        try:
+            customer = Customer.objects.get(email=email)
+        except Customer.DoesNotExist:
+            raise serializers.ValidationError('Unable to authenticate with provided credentials.', code='authorization')
+        if not customer.check_password(password):
+            raise serializers.ValidationError('Unable to authenticate with provided credentials.', code='authorization')
+        attrs['customer'] = customer
+        return attrs
