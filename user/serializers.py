@@ -70,8 +70,11 @@ class CustomerSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
+        professionals = validated_data.pop('professionals', None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        if professionals is not None:
+            instance.professionals.set(professionals)
         if password:
             instance.set_password(password)
         instance.save()
@@ -411,18 +414,26 @@ class UserAdminSerializer(serializers.ModelSerializer):
     
 
 class CustomerRegistrationSerializer(serializers.ModelSerializer):
+    professionals = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role='professional'),
+        many=True,
+        required=False
+    )
     password = serializers.CharField(write_only=True, min_length=5)
 
     class Meta:
         model = Customer
-        fields = ['id', 'full_name', 'email', 'password', 'contact_number']
+        fields = ['id', 'full_name', 'email', 'password', 'contact_number', 'professionals']
         read_only_fields = ['id']
 
     def create(self, validated_data):
         password = validated_data.pop('password')
+        professionals = validated_data.pop('professionals', None)
         customer = Customer(**validated_data)
         customer.set_password(password)
         customer.save()
+        if professionals is not None:
+            customer.professionals.set(professionals)
         return customer
 
     def validate_email(self, value):

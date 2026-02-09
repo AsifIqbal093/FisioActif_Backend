@@ -322,6 +322,65 @@ class BookingViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='professional_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description='Professional user ID',
+            ),
+            OpenApiParameter(
+                name='date',
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                description='Date to get available slots for (format: YYYY-MM-DD)',
+            ),
+            OpenApiParameter(
+                name='service_ids',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='Comma-separated list of service IDs to sum durations',
+            ),
+        ],
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+        },
+    )
+    @action(detail=False, methods=['get'])
+    def available_slots(self, request):
+        """Get all available slots for a specific professional, date, and total duration of multiple services"""
+        from datetime import datetime, timedelta, time
+        professional_id = request.query_params.get('professional_id')
+        date_str = request.query_params.get('date')
+        service_ids_str = request.query_params.get('service_ids')
+        if not (professional_id and date_str and service_ids_str):
+            return Response(
+                {"error": "professional_id, date, and service_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            professional = User.objects.get(id=professional_id)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid professional ID"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except Exception:
+            return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            service_ids = [int(sid) for sid in service_ids_str.split(',') if sid.strip()]
+            services = Service.objects.filter(id__in=service_ids)
+            if services.count() != len(service_ids):
+                return Response({"error": "One or more service IDs are invalid."}, status=status.HTTP_400_BAD_REQUEST)
+            total_duration = sum(s.duration for s in services)
+        except Exception:
+            return Response({"error": "Invalid service_ids parameter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        slots = get_available_slots_for_professional(professional, date_obj, total_duration)
+        return Response(slots)
+
 # from rest_framework import viewsets, status, permissions
 # from rest_framework.response import Response
 # from rest_framework.decorators import action
