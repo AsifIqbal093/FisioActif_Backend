@@ -15,9 +15,10 @@ class Class(models.Model):
         blank=True
     )
     clients = models.ManyToManyField(
-        'user.Customer',
+        settings.AUTH_USER_MODEL,
         blank=True,
-        related_name='enrolled_classes'
+        related_name='enrolled_classes',
+        limit_choices_to={'role': 'client'}
     )
     status = models.BooleanField(default=True)  # True = active
     created_at = models.DateTimeField(auto_now_add=True)

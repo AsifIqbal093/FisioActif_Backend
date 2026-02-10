@@ -1,8 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Class
-from user.models import Customer
-from user.serializers import CustomerSerializer
+from user.models import User
+from user.serializers import UserClientSerializer
 
 User = get_user_model()
 
@@ -18,13 +18,13 @@ class ClassSerializer(serializers.ModelSerializer):
     # For POST: accept list of client IDs
     client_ids = serializers.PrimaryKeyRelatedField(
         many=True,
-        queryset=Customer.objects.all(),
+        queryset=User.objects.filter(role='client'),
         write_only=True,
         required=False,
         source='clients'
     )
     # For GET: return full client details
-    clients = CustomerSerializer(many=True, read_only=True)
+    clients = UserClientSerializer(many=True, read_only=True)
 
     class Meta:
         model = Class

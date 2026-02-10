@@ -1,4 +1,3 @@
-from user.serializers import CustomerAuthTokenSerializer
 from rest_framework.views import APIView
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
@@ -8,9 +7,9 @@ from rest_framework.response import Response
 from rest_framework import generics, viewsets, status, permissions
 from rest_framework.exceptions import NotFound
 
-from user.models import User, Customer
+from user.models import User
 from .permissions import IsAdmin
-from user.serializers import UserSerializer, UserAdminSerializer, CustomerSerializer, TimeslotSerializer, CustomerRegistrationSerializer
+from user.serializers import UserSerializer, UserAdminSerializer, TimeslotSerializer, UserClientSerializer
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 
@@ -35,8 +34,8 @@ class CustomTokenObtainView(ObtainAuthToken):
 
 class CreateUserView(generics.CreateAPIView):
 
-    serializer_class = CustomerRegistrationSerializer
-    queryset = Customer.objects.all()
+    serializer_class = UserClientSerializer
+    queryset = User.objects.filter(role='client')
 
     def create(self, request, *args, **kwargs):
         # Only allow client registration, not professional
@@ -169,26 +168,21 @@ class CustomerViewSet(viewsets.ModelViewSet):
         return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
 
 
-    queryset = Customer.objects.all()
+    queryset = User.objects.filter(role='client')
     permission_classes = [permissions.IsAuthenticated]
 
     def get_serializer_class(self):
-        if self.action == 'create':
-            return CustomerRegistrationSerializer
-        return CustomerSerializer
+        return UserClientSerializer
 
     def get_queryset(self):
         user = self.request.user
         # Admin can see all clients
         if hasattr(user, 'role') and user.role == 'admin':
-            return Customer.objects.all().order_by('-id')
+            return User.objects.filter(role='client').order_by('-id')
         # Client can only see their own record
-        if hasattr(user, 'role') and user.role == 'professional':
-            return Customer.objects.none()
-        # If authenticated as Customer (client)
-        if hasattr(user, 'email') and not hasattr(user, 'role'):
-            return Customer.objects.filter(email=user.email)
-        return Customer.objects.none()
+        if hasattr(user, 'role') and user.role == 'client':
+            return User.objects.filter(id=user.id)
+        return User.objects.none()
     
     @extend_schema(
         parameters=[
@@ -197,11 +191,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 type=int,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description='ID of the professional to fetch assigned customers for'
+                description='ID of the professional to fetch assigned clients for'
             )
         ],
-        responses=CustomerSerializer(many=True),
-        description="Get customers assigned to a specific professional by ID"
+        responses=UserClientSerializer(many=True),
+        description="Get clients assigned to a specific professional by ID"
     )
     @action(detail=False, methods=['get'], url_path='by-professional')
     def by_professional(self, request):
@@ -215,8 +209,8 @@ class CustomerViewSet(viewsets.ModelViewSet):
         except User.DoesNotExist:
             raise NotFound("Professional not found.")
 
-        customers = Customer.objects.filter(professionals=professional)
-        serializer = self.get_serializer(customers, many=True)
+        clients = User.objects.filter(professionals=professional, role='client')
+        serializer = self.get_serializer(clients, many=True)
         return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
@@ -254,7 +248,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
 from user.serializers import AuthTokenSerializer
 
 class CustomTokenObtainView(APIView):
-    """Login view for both admin (User) and client (Customer)"""
+    """Login view for both admin and client (User model)"""
     serializer_class = AuthTokenSerializer
 
     def post(self, request, *args, **kwargs):
@@ -265,7 +259,7 @@ class CustomTokenObtainView(APIView):
         from django.contrib.auth import authenticate
         user = authenticate(request=request, username=email, password=password)
         if user is not None:
-            # Only allow admin login, not professional
+            # Only allow admin and client login, not professional
             if hasattr(user, 'role') and user.role == 'professional':
                 return Response({'detail': 'Professional login is not allowed.'}, status=status.HTTP_403_FORBIDDEN)
             token, created = Token.objects.get_or_create(user=user)
@@ -275,20 +269,6 @@ class CustomTokenObtainView(APIView):
                 'email': user.email,
                 'full_name': user.full_name,
                 'role': user.role,
-                'type': 'admin'
+                'type': user.role
             })
-        from user.models import Customer
-        try:
-            customer = Customer.objects.get(email=email)
-        except Customer.DoesNotExist:
-            return Response({'detail': 'Unable to authenticate with provided credentials.'}, status=400)
-        if not customer.check_password(password):
-            return Response({'detail': 'Unable to authenticate with provided credentials.'}, status=400)
-        token, created = Token.objects.get_or_create(user=None)
-        return Response({
-            'token': token.key,
-            'customer_id': customer.pk,
-            'email': customer.email,
-            'full_name': customer.full_name,
-            'type': 'client'
-        })
+        return Response({'detail': 'Unable to authenticate with provided credentials.'}, status=400)

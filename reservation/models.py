@@ -1,7 +1,7 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
-from user.models import Customer
+from user.models import User
 from classes.models import Class
 
 User = get_user_model()
@@ -30,10 +30,11 @@ class Booking(models.Model):
         default=None
     )
     customer = models.ForeignKey(
-        Customer,
+        User,
         on_delete=models.SET_NULL,
         null=True,
-        related_name='customer_bookings'
+        related_name='customer_bookings',
+        help_text='Client user for this booking (role=client)'
     )
     class_id = models.ForeignKey(
         Class,

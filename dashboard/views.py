@@ -6,7 +6,7 @@ from reservation.permissions import IsAdminUser
 from django.utils import timezone
 from datetime import timedelta
 from reservation.models import Booking
-from user.models import User, Client
+from user.models import User
 from .models import Video
 from .serializers import VideoSerializer
 
@@ -70,7 +70,7 @@ class AnalyticsView(APIView):
         ).count()
 
         # Other totals
-        total_clients = Client.objects.count()
+        total_clients = User.objects.filter(role='client').count()
         total_professionals = User.objects.filter(
             role__in=['professional']
         ).count()
@@ -92,7 +92,7 @@ class AnalyticsView(APIView):
 
         # Client visitors aggregation
         def get_client_counts(start_date, end_date):
-            qs = Client.objects.filter(joined_at__date__gte=start_date, joined_at__date__lte=end_date)
+            qs = User.objects.filter(role='client', joined_at__date__gte=start_date, joined_at__date__lte=end_date)
             counts = {d: 0 for d in daterange(start_date, end_date)}
             for obj in qs:
                 join_date = obj.joined_at.date()

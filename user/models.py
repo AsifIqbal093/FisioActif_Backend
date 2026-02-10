@@ -5,6 +5,7 @@ from django.contrib.auth.models import (
     BaseUserManager,
     PermissionsMixin,
 )
+from django.utils import timezone
 
 class UserManager(BaseUserManager):
     """Manager for users."""
@@ -41,6 +42,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         ('admin', 'Admin'),
         ('professional', 'Professional'),
         ('collaborator', 'Collaborator'),
+        ('client', 'Client'),
     )
     # existing fields
     email = models.EmailField(max_length=255, unique=True)
@@ -48,22 +50,28 @@ class User(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(auto_now_add=True)
     full_name = models.CharField(max_length=255)
     is_active = models.BooleanField(default=True)
-
-    
-
     role = models.CharField(
         max_length=20,
         choices=ROLE_CHOICES,
-        default='professional'
+        default='client'
     )
-
     photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
-
     street = models.CharField(max_length=200, null=True, blank=True)
     city = models.CharField(max_length=200, null=True, blank=True)
     country = models.CharField(max_length=200, null=True, blank=True)
     state = models.CharField(max_length=200, null=True, blank=True)
     zipcode = models.CharField(max_length=100, null=True, blank=True)
+    # Client-specific fields
+    contact_number = models.CharField(max_length=20, blank=True, null=True)
+    joined_at = models.DateTimeField(default=timezone.now)
+    # Professionals relationship for clients
+    professionals = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        limit_choices_to={'role': 'professional'},
+        related_name='clients',
+        blank=True,
+    )
 
     # ===== Added fields from JSON =====
 
@@ -168,40 +176,5 @@ class User(AbstractBaseUser, PermissionsMixin):
     # )
 
 
-class Customer(models.Model):
-    full_name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
-    password = models.CharField(max_length=128)
-    contact_number = models.CharField(max_length=20, blank=True, null=True)
-    # Password hashing and authentication methods
-    def set_password(self, raw_password):
-        from django.contrib.auth.hashers import make_password
-        self.password = make_password(raw_password)
-
-    def check_password(self, raw_password):
-        from django.contrib.auth.hashers import check_password
-        return check_password(raw_password, self.password)
-    professionals = models.ManyToManyField(
-        User,
-        limit_choices_to={'role': 'professional'},
-        related_name='clients',
-        blank=True,
-    )
-    joined_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.full_name
-
-
-# Backwards-compatibility: older code imported `Client` from `user.models`.
-# Provide a proxy model so imports keep working and no DB migration is required.
-class Client(Customer):
-    class Meta:
-        proxy = True
-        verbose_name = 'Client'
-        verbose_name_plural = 'Clients'
-
-    def __str__(self):
-        # Keep the representation consistent with Customer
-        return super().__str__()
+    # Customer and Client models removed. All logic now handled by User with role='client'.
 

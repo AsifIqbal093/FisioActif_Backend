@@ -6,7 +6,7 @@ from django.contrib.auth import (
 )
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import User, Customer
+from .models import User
 from django.contrib.auth import (
     get_user_model,
     authenticate,
@@ -47,8 +47,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
-class CustomerSerializer(serializers.ModelSerializer):
 
+# Unified serializer for client registration and update
+class UserClientSerializer(serializers.ModelSerializer):
     professionals = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role='professional'),
         many=True,
@@ -57,16 +58,20 @@ class CustomerSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=5, required=True)
 
     class Meta:
-        model = Customer
+        model = User
         fields = ['id', 'full_name', 'email', 'password', 'contact_number', 'joined_at', 'professionals']
         read_only_fields = ['id', 'joined_at']
 
     def create(self, validated_data):
         password = validated_data.pop('password')
-        customer = Customer(**validated_data)
-        customer.set_password(password)
-        customer.save()
-        return customer
+        professionals = validated_data.pop('professionals', None)
+        user = User(**validated_data)
+        user.set_password(password)
+        user.role = 'client'
+        user.save()
+        if professionals is not None:
+            user.professionals.set(professionals)
+        return user
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
@@ -83,7 +88,7 @@ class CustomerSerializer(serializers.ModelSerializer):
     def validate_email(self, value):
         if self.instance and self.instance.email == value:
             return value
-        if Customer.objects.filter(email=value).exists():
+        if User.objects.filter(email=value, role='client').exists():
             raise serializers.ValidationError("A client with this email already exists.")
         return value
 
@@ -278,10 +283,10 @@ class UserAdminSerializer(serializers.ModelSerializer):
         return get_services_by_category_for_user(obj)
     
     category_services = serializers.DictField(child=serializers.ListField(child=serializers.IntegerField()), write_only=True, required=False, help_text="{category_id: [service_id, ...], ...}")
-    # Read customers as nested data
-    customers = CustomerSerializer(source='clients', many=True, read_only=True)
+    # Read clients as nested data
+    customers = UserClientSerializer(source='clients', many=True, read_only=True)
     customer_ids = FlexiblePKRelatedField(
-        queryset=Customer.objects.all(),
+        queryset=User.objects.filter(role='client'),
         many=True,
         write_only=True,
         required=False
@@ -413,50 +418,3 @@ class UserAdminSerializer(serializers.ModelSerializer):
         return user
     
 
-class CustomerRegistrationSerializer(serializers.ModelSerializer):
-    professionals = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.filter(role='professional'),
-        many=True,
-        required=False
-    )
-    password = serializers.CharField(write_only=True, min_length=5)
-
-    class Meta:
-        model = Customer
-        fields = ['id', 'full_name', 'email', 'password', 'contact_number', 'professionals']
-        read_only_fields = ['id']
-
-    def create(self, validated_data):
-        password = validated_data.pop('password')
-        professionals = validated_data.pop('professionals', None)
-        customer = Customer(**validated_data)
-        customer.set_password(password)
-        customer.save()
-        if professionals is not None:
-            customer.professionals.set(professionals)
-        return customer
-
-    def validate_email(self, value):
-        if Customer.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A client with this email already exists.")
-        return value
-
-
-class CustomerAuthTokenSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(
-        style={'input_type': 'password'},
-        trim_whitespace=False,
-    )
-
-    def validate(self, attrs):
-        email = attrs.get('email')
-        password = attrs.get('password')
-        try:
-            customer = Customer.objects.get(email=email)
-        except Customer.DoesNotExist:
-            raise serializers.ValidationError('Unable to authenticate with provided credentials.', code='authorization')
-        if not customer.check_password(password):
-            raise serializers.ValidationError('Unable to authenticate with provided credentials.', code='authorization')
-        attrs['customer'] = customer
-        return attrs

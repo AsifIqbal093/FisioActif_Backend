@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import Booking
 from django.utils import timezone
-from user.models import User, Customer
+from user.models import User
 from django.core.mail import send_mail
 from django.conf import settings
 from decimal import Decimal
@@ -16,7 +16,7 @@ class UserDataSerializer(serializers.ModelSerializer):
 
 class CustomerDataSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Customer
+        model = User
         fields = ['id', 'full_name', 'email']
 
 
@@ -27,7 +27,7 @@ class BookingSerializer(serializers.ModelSerializer):
         write_only=True
     )
     customer = serializers.PrimaryKeyRelatedField(
-        queryset=Customer.objects.all(),
+        queryset=User.objects.filter(role='client'),
         write_only=True,
         allow_null=True,
         required=False,
