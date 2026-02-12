@@ -63,7 +63,14 @@ class ManageUserView(generics.RetrieveUpdateAPIView):
 class UserAdminViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserAdminSerializer
-    permission_classes = [IsAdmin]
+    def get_permissions(self):
+        # Allow admin always; allow client only for list with role=professional
+        if self.action == 'list':
+            user = self.request.user
+            role_param = self.request.query_params.get('role')
+            if user.is_authenticated and user.role == 'client' and role_param == 'professional':
+                return [permissions.IsAuthenticated()]
+        return [IsAdmin()]
 
     @extend_schema(
         parameters=[
