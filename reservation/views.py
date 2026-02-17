@@ -151,6 +151,8 @@ class BookingViewSet(viewsets.ModelViewSet):
             return base_qs
         if user.role in ['professional', 'teacher']:
             return base_qs.filter(professional=user)
+        if user.role == 'client':
+            return base_qs.filter(customer=user)
         return Booking.objects.none()
 
     def create(self, request, *args, **kwargs):
@@ -172,8 +174,23 @@ class BookingViewSet(viewsets.ModelViewSet):
 
 
     def perform_create(self, serializer):
-        if not self.request.user.role == 'admin':
-            serializer.save(professional=self.request.user)
+        user = self.request.user
+        # Admin: allow all fields
+        if user.role == 'admin':
+            serializer.save()
+        # Professional: can only book for themselves
+        elif user.role in ['professional', 'teacher']:
+            serializer.save(professional=user)
+        # Client: can set professional from request data
+        elif user.role == 'client':
+            professional_id = self.request.data.get('professional')
+            from user.models import User as AppUser
+            try:
+                professional = AppUser.objects.get(id=professional_id, role='professional')
+            except AppUser.DoesNotExist:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'professional': 'Invalid professional ID'})
+            serializer.save(professional=professional, customer=user)
         else:
             serializer.save()
     
