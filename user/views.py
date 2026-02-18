@@ -64,11 +64,17 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserAdminSerializer
     def get_permissions(self):
-        # Allow admin always; allow client only for list with role=professional
+        user = self.request.user
+        # Allow admin always
+        if user.is_authenticated and user.role == 'admin':
+            return [IsAdmin()]
+        # Allow client for list with role=professional or for timeslots action
         if self.action == 'list':
-            user = self.request.user
             role_param = self.request.query_params.get('role')
             if user.is_authenticated and user.role == 'client' and role_param == 'professional':
+                return [permissions.IsAuthenticated()]
+        if self.action == 'timeslots':
+            if user.is_authenticated and user.role == 'client':
                 return [permissions.IsAuthenticated()]
         return [IsAdmin()]
 
