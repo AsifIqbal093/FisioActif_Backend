@@ -4,11 +4,14 @@ from django.conf import settings
 
 class Service(models.Model):
     DURATION_CHOICES = [
+        (5, '5 min'),
+        (10, '10 min'),
         (15, '15 min'),
         (30, '30 min'),
         (45, '45 min'),
         (60, '60 min'),
         (90, '90 min'),
+        (120, '120 min'),
     ]
 
     name = models.CharField(max_length=200)
